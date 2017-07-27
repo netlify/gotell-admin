@@ -27,7 +27,10 @@ const apiRequest = action('apiRequest', function apiRequest(path, options) {
   options.headers.Authorization = `token ${gh.token}`;
   const ignoreErrors = options.ignoreErrors;
   delete options.ignoreErrors;
-  const url = path.match(/^https:/) ? path : `${endpoint}${path}`;
+  let url = path.match(/^https:/) ? path : `${endpoint}${path}`;
+  if (!url.match(/\?/)) {
+    url = `${url}?ts=${new Date().getTime()}`;
+  }
 
   const promise = fetch(url, options)
     .then((response) => {
@@ -153,7 +156,9 @@ gh.deleteCheckedComments = action(function deleteCheckedComments() {
           gh.comments = gh.comments.filter((c) => c.sha !== comment.sha);
           gh.loading = false;
         }));
-      });
+      })
+    .then(gh.loadComments)
+    .catch(gh.loadComments);
   });
 });
 
