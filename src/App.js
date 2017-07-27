@@ -27,7 +27,7 @@ class App extends Component {
     return (
       <div className="App">
         <Menu vertical fixed="left" inverted>
-          <Menu.Item as={Dropdown} trigger={<span><Icon name="user"/>{github.user.email}</span>}>
+          <Menu.Item as={Dropdown} trigger={<span><Icon name="user"/>{github.user.login}</span>}>
             <Dropdown.Menu>
               <Dropdown.Item onClick={this.handleLogout}>Logout</Dropdown.Item>
             </Dropdown.Menu>
