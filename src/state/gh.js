@@ -15,6 +15,7 @@ const gh = observable({
   loading: false,
   user: lsData.user,
   comments: null,
+  commentsPages: {},
   awaiting_moderation: null,
   threads: null
 });
@@ -26,13 +27,15 @@ const apiRequest = action('apiRequest', function apiRequest(path, options) {
   options.headers.Authorization = `token ${gh.token}`;
   const ignoreErrors = options.ignoreErrors;
   delete options.ignoreErrors;
-  const promise = fetch(`${endpoint}${path}`, options)
+  const url = path.match(/^https:/) ? path : `${endpoint}${path}`;
+
+  const promise = fetch(url, options)
     .then((response) => {
       if (!response.ok) {
         throw(new Error("Failed to load commits"));
       }
 
-      return response.json();
+      return response.json().then((data) => ({data, headers: response.headers}));
     })
   if (!ignoreErrors) {
     promise.catch(action("error", (error) => {
@@ -48,10 +51,10 @@ gh.authenticate = action(function authenticate() {
   gh.loading = true;
   auth.authenticate({provider: 'github', scope: 'repo'}, action('token-cb', (err, data) => {
     gh.token = data.token;
-    apiRequest('/user').then((user) => {
+    apiRequest('/user').then((response) => {
       runInAction(() => {
-        localStorage.setItem(lsKey, JSON.stringify({token: data.token, user}));
-        gh.user = user;
+        localStorage.setItem(lsKey, JSON.stringify({token: data.token, user: response.data}));
+        gh.user = response.data;
         gh.error = err;
         gh.loading = false;
       });
@@ -61,20 +64,31 @@ gh.authenticate = action(function authenticate() {
 
 gh.loadAwaiting = action(function loadAwaiting() {
   apiRequest(`/repos/${repo}/pulls`)
-    .then(action("process-gh-requests", (awaiting) => {
-      gh.awaiting_moderation = awaiting;
+    .then(action("process-gh-requests", ({data}) => {
+      gh.awaiting_moderation = data;
       gh.loading = false;
     }));
 });
 
-gh.loadComments = action(function loadComments() {
-  apiRequest(`/repos/${repo}/commits`)
-    .then((commits) => (
-      Promise.all(commits.map((commit) => fetchCommit(commit.sha)))
-    ))
+gh.loadComments = action(function loadComments(pageLink) {
+  apiRequest(pageLink || `/repos/${repo}/commits`)
+    .then(action("process-commit-list", ({headers, data}) => {
+      const link = headers.get("Link");
+      if (link) {
+        const pagination = {};
+        link.split(',').forEach((part) => {
+          const [url, rel] = part.split(';').map((el) => el.trim());
+          pagination[rel.match(/rel="(.+)"/)[1]] = url.match(/^<(.+)>$/)[1];
+        });
+        gh.commentsPages = pagination;
+      } else {
+        gh.commentsPages = {};
+      }
+      return Promise.all(data.map((commit) => fetchCommit(commit.sha)));
+    }))
     .then((commits) => (
       Promise.all(commits.filter((commit) => {
-        if (commit.files && commit.files[0].changes === 1 && commit.files[0].additions === 1) { return true; }
+        if (commit.files && commit.files[0] && commit.files[0].changes === 1 && commit.files[0].additions === 1) { return true; }
         commit.files && commit.files.map((f) => {
           if (f.status == "removed") {
             return LocalForage.removeItem(`gh.${f.sha}`);
@@ -90,8 +104,17 @@ gh.loadComments = action(function loadComments() {
       )))
     ))
     .then(action("process-gh-requests", (commits) => {
-      gh.comments = commits.filter((c) => c.files && c.files[0].data);
-      gh.loading = false;
+      const comments = commits.filter((c) => c.files && c.files[0].data);
+      if (pageLink) {
+        gh.comments = (gh.comments.concat(comments))
+      } else {
+        gh.comments = comments;
+      }
+      if (gh.comments.length < 5 && gh.commentsPages.next)  {
+        gh.loadComments(gh.commentsPages.next);
+      } else {
+        gh.loading = false;
+      }
     }));
 });
 
@@ -115,8 +138,8 @@ gh.toggleAwaiting = action(function toggleAwaiting(id) {
 gh.deleteCheckedComments = action(function deleteCheckedComments() {
   gh.comments.filter((c) => c.checked).forEach((comment) => {
     apiRequest(`/repos/${repo}/commits/${comment.sha}`)
-      .then((commit) => {
-        Promise.all(commit.files.map((file) => {
+      .then(({data}) => {
+        Promise.all(data.files.map((file) => {
           if (file.status === 'added') {
             return apiRequest(`/repos/${repo}/contents/${file.filename}`, {
               method: 'DELETE',
@@ -142,9 +165,9 @@ gh.updatePR = action(function updatePR(pr, state) {
   return apiRequest(`/repos/${repo}/pulls/${pr.number}`, {
     method: 'PATCH',
     body: JSON.stringify({state: state})
-  }).then((pr) => {
-    pr.state = 'closed';
-    return pr;
+  }).then(({data}) => {
+    data.state = 'closed';
+    return data;
   });
 });
 
@@ -174,9 +197,9 @@ function fetchCommit(sha) {
   return cache.then((cached) => {
     if (cached) { return cached; }
 
-    return apiRequest(`/repos/${repo}/commits/${sha}`).then((commit) => {
-      LocalForage.setItem(`gh.${ sha }`, commit);
-      return commit;
+    return apiRequest(`/repos/${repo}/commits/${sha}`).then(({data}) => {
+      LocalForage.setItem(`gh.${ sha }`, data);
+      return data;
     });
   });
 }
@@ -186,9 +209,9 @@ function fetchFile(path, sha) {
   return cache.then((cached) => {
     if (cached) { return cached; }
 
-    return apiRequest(`/repos/${repo}/contents/${path}`, {ignoreErrors: true}).then((file) => {
-      LocalForage.setItem(`gh.${ file.sha }`, file);
-      return file;
+    return apiRequest(`/repos/${repo}/contents/${path}`, {ignoreErrors: true}).then(({data}) => {
+      LocalForage.setItem(`gh.${ data.sha }`, data);
+      return data;
     }).catch((err) => null);
   });
 }
@@ -198,8 +221,8 @@ function fetchThread(path, obj) {
     return Promise.resolve(obj.threads);
   }
   return apiRequest(`/repos/${repo}/contents/threads/${path}`)
-    .then(action('thread-cb', (threads) => {
-      obj.threads = threads;
+    .then(action('thread-cb', ({data}) => {
+      obj.threads = data;
       return obj;
     }));
 }

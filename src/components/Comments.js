@@ -13,6 +13,10 @@ class Comments extends Component {
     this.props.github.toggleComment(obj.id, obj.checked);
   }
 
+  handleLoadMore = () => {
+    this.props.github.loadComments(this.props.github.commentsPages.next);
+  }
+
   handleTrash = (e) => {
     e.preventDefault();
     const comments = this.props.github.comments.filter((c) => c.checked);
@@ -52,6 +56,8 @@ class Comments extends Component {
           ))}
         </Table.Body>
       </Table>
+      {github.commentsPages.next && <Button onClick={this.handleLoadMore}>Load More</Button>}
+
     </Dimmer.Dimmable>
   }
 }
