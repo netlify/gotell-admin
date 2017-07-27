@@ -221,11 +221,23 @@ function fetchThread(path, obj) {
     return Promise.resolve(obj.threads);
   }
   return apiRequest(`/repos/${repo}/contents/threads/${path}`)
-    .then(action('thread-cb', ({data}) => {
-      obj.threads = data;
+    .then(({data}) => (
+      Promise.all(data.map((el) => {
+        if (el.type === 'file') {
+          return fetchFile(el.path, el.sha).then((f) => {
+            el.comment = JSON.parse(atob(f.content));
+            return el;
+          });
+        }
+        return el;
+      }
+    ))))
+    .then(action('thread-cb', (elements) => {
+      obj.threads = elements;
       return obj;
     }));
 }
+
 async function loadThread(path) {
   await fetchThread('', gh);
   let obj = gh;
