@@ -103,6 +103,15 @@ gh.toggleComment = action(function toggleComment(id) {
   }
 });
 
+gh.toggleAwaiting = action(function toggleAwaiting(id) {
+  for (let i=0; i<gh.awaiting_moderation.length; i++) {
+    if (gh.awaiting_moderation[i].id === id) {
+      gh.awaiting_moderation[i].checked = !gh.awaiting_moderation[i].checked;
+    }
+  }
+});
+
+
 gh.deleteCheckedComments = action(function deleteCheckedComments() {
   gh.comments.filter((c) => c.checked).forEach((comment) => {
     apiRequest(`/repos/${repo}/commits/${comment.sha}`)
@@ -122,6 +131,41 @@ gh.deleteCheckedComments = action(function deleteCheckedComments() {
           gh.loading = false;
         }));
       });
+  });
+});
+
+function deleteBranch(branch) {
+  return apiRequest(`/repos/${repo}/git/refs/heads/${branch}`, {method: 'DELETE'});
+}
+
+gh.updatePR = action(function updatePR(pr, state) {
+  return apiRequest(`/repos/${repo}/pulls/${pr.number}`, {
+    method: 'PATCH',
+    body: JSON.stringify({state: state})
+  }).then((pr) => {
+    pr.state = 'closed';
+    return pr;
+  });
+});
+
+gh.removePR = action(function removePR(pr) {
+  gh.awaiting_moderation = gh.awaiting_moderation.filter((p) => p.id !== pr.id);
+})
+
+gh.deleteCheckedPRs = action(function deleteCheckedPRs() {
+  gh.awaiting_moderation.filter((c) => c.checked).forEach((pr) => {
+    gh.updatePR(pr, 'closed')
+      .then(gh.removePR)
+      .then(() => deleteBranch(pr.head.ref));
+  });
+});
+
+gh.approveCheckedPRs = action(function approveCheckedPRs() {
+  gh.awaiting_moderation.filter((c) => c.checked).forEach((pr) => {
+    apiRequest(`/repos/${repo}/pulls/${pr.number}/merge`, {
+      method: 'PUT',
+      body: JSON.stringify({commit_title: 'Approved Comment: '})
+    }).then(() => gh.removePR(pr)).then(() => deleteBranch(pr.head.ref));
   });
 });
 

@@ -33,7 +33,7 @@ class Comments extends Component {
       <Table celled compact definition>
         <Table.Header fullWidth>
           <Table.Row>
-            <Table.HeaderCell textAlign="center">
+            <Table.HeaderCell textAlign="center" className="actions-th">
               <Button onClick={this.handleTrash}><Icon name='trash outline'/></Button>
             </Table.HeaderCell>
             <Table.HeaderCell>Comment</Table.HeaderCell>
