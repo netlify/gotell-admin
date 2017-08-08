@@ -221,6 +221,20 @@ function fetchFile(path, sha) {
   });
 }
 
+gh.commitComment = action(function commitComment(attributes) {
+  const {comment, thread} = attributes;
+
+  return apiRequest(`/repos/${repo}/contents/${thread.path}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      message: `Updated comment ${thread}`,
+      content: btoa(JSON.stringify(comment)),
+      sha: thread.sha,
+    })
+  }).then(action('commitComment-cb', () => gh.loading = false));
+})
+
+
 function fetchThread(path, obj) {
   if (obj.threads) {
     return Promise.resolve(obj.threads);
@@ -266,5 +280,6 @@ gh.logout = action(function logout() {
   gh.token = null;
   gh.user = null;
 });
+
 
 export default gh;

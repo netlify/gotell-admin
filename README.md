@@ -8,5 +8,5 @@ Clone the repo, then:
 
 ```
 yarn
-REACT_APP_REPO=githubuser/repo yarn run
+REACT_APP_REPO=githubuser/repo yarn start
 ```
